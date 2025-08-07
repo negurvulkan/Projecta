@@ -1,0 +1,7 @@
+body { font-family: Arial, sans-serif; margin:0; padding:0; }
+#toolbar, #actions { padding:10px; background:#eee; }
+#editor-container, #projector-container { width:100%; height:600px; background:#fff; border:1px solid #ccc; }
+#editor, #projector { width:100%; height:100%; }
+#properties { padding:10px; background:#f9f9f9; }
+svg { touch-action: none; }
+.resize-handle, .rotate-handle { stroke:#00f; fill:#fff; }
