@@ -246,8 +246,11 @@ function makeDraggable(el){
 
     el.addEventListener('pointerdown', e => {
         if(e.target.classList.contains('resize-handle') || e.target.classList.contains('rotate-handle')) return;
+
         selectElement(el);
-        startX = e.clientX; startY = e.clientY;
+        startX = e.clientX;
+        startY = e.clientY;
+
         origX = parseFloat(el.getAttribute('x') || el.getAttribute('x1') || 0);
         origY = parseFloat(el.getAttribute('y') || el.getAttribute('y1') || 0);
 
@@ -256,26 +259,39 @@ function makeDraggable(el){
             origY2 = parseFloat(el.getAttribute('y2') || 0);
         }
 
-                el.setAttribute('x2',origX2 + dx);
-                el.setAttribute('y2',origY2 + dy);
+        el.setPointerCapture(e.pointerId);
+    });
 
+    el.addEventListener('pointermove', e => {
+        if(!el.hasPointerCapture(e.pointerId)) return;
+
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+
+        switch(el.tagName){
+            case 'line':
+                el.setAttribute('x1', origX + dx);
+                el.setAttribute('y1', origY + dy);
+                el.setAttribute('x2', origX2 + dx);
+                el.setAttribute('y2', origY2 + dy);
                 break;
             case 'text':
             case 'image':
             case 'polygon':
-                el.setAttribute('x',origX + dx);
-                el.setAttribute('y',origY + dy);
+                el.setAttribute('x', origX + dx);
+                el.setAttribute('y', origY + dy);
                 break;
         }
 
         const bbox = el.getBBox();
-        el.dataset.cx = bbox.x + bbox.width/2;
-        el.dataset.cy = bbox.y + bbox.height/2;
-        applyTransform(el);
+        el.dataset.cx = bbox.x + bbox.width / 2;
+        el.dataset.cy = bbox.y + bbox.height / 2;
 
+        applyTransform(el);
         updateLayoutData();
         updateSelectionBox();
     });
+
     el.addEventListener('pointerup', e => {
         el.releasePointerCapture(e.pointerId);
     });
