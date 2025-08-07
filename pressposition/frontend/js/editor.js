@@ -242,7 +242,6 @@ function deselect(){
 }
 
 function makeDraggable(el){
-codex/create-web-app-for-positioning-assistance
     let startX, startY, origX, origY, origX2, origY2;
 
     el.addEventListener('pointerdown', e => {
