@@ -5,6 +5,8 @@ const loadBtn = document.getElementById("loadBtn");
 const resetBtn = document.getElementById("resetBtn");
 let currentTool = null;
 let layoutData = [];
+let selectedEl = null;
+let selectionGroup = null;
 
 function setTool(tool){
     currentTool = tool;
@@ -85,9 +87,165 @@ function ensureArrowMarker(){
     }
 }
 
+function selectElement(el){
+    selectedEl = el;
+    if(selectionGroup) selectionGroup.remove();
+    const bbox = el.getBBox();
+    selectionGroup = document.createElementNS('http://www.w3.org/2000/svg','g');
+    const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+    rect.setAttribute('x',bbox.x); rect.setAttribute('y',bbox.y);
+    rect.setAttribute('width',bbox.width); rect.setAttribute('height',bbox.height);
+    rect.setAttribute('fill','none');
+    rect.setAttribute('stroke','#00f');
+    rect.setAttribute('stroke-dasharray','4');
+    selectionGroup.appendChild(rect);
+    const handles = [
+        {name:'nw', x:bbox.x, y:bbox.y, cursor:'nwse-resize'},
+        {name:'ne', x:bbox.x+bbox.width, y:bbox.y, cursor:'nesw-resize'},
+        {name:'sw', x:bbox.x, y:bbox.y+bbox.height, cursor:'nesw-resize'},
+        {name:'se', x:bbox.x+bbox.width, y:bbox.y+bbox.height, cursor:'nwse-resize'}
+    ];
+    handles.forEach(h=>{
+        const r = document.createElementNS('http://www.w3.org/2000/svg','rect');
+        r.setAttribute('x',h.x-4); r.setAttribute('y',h.y-4);
+        r.setAttribute('width',8); r.setAttribute('height',8);
+        r.classList.add('resize-handle');
+        r.dataset.handle = h.name;
+        r.style.cursor = h.cursor;
+        selectionGroup.appendChild(r);
+    });
+    const rot = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    rot.setAttribute('cx', bbox.x + bbox.width/2);
+    rot.setAttribute('cy', bbox.y - 20);
+    rot.setAttribute('r',6);
+    rot.classList.add('rotate-handle');
+    rot.style.cursor = 'grab';
+    selectionGroup.appendChild(rot);
+    editor.appendChild(selectionGroup);
+    addHandleListeners();
+}
+
+function addHandleListeners(){
+    if(!selectionGroup) return;
+    selectionGroup.querySelectorAll('.resize-handle').forEach(h=>{
+        h.addEventListener('pointerdown', startResize);
+    });
+    const rot = selectionGroup.querySelector('.rotate-handle');
+    if(rot) rot.addEventListener('pointerdown', startRotate);
+}
+
+function updateSelectionBox(){
+    if(!selectedEl || !selectionGroup) return;
+    const bbox = selectedEl.getBBox();
+    const rect = selectionGroup.querySelector('rect');
+    rect.setAttribute('x',bbox.x); rect.setAttribute('y',bbox.y);
+    rect.setAttribute('width',bbox.width); rect.setAttribute('height',bbox.height);
+    const positions = {
+        nw:[bbox.x,bbox.y],
+        ne:[bbox.x+bbox.width,bbox.y],
+        sw:[bbox.x,bbox.y+bbox.height],
+        se:[bbox.x+bbox.width,bbox.y+bbox.height]
+    };
+    selectionGroup.querySelectorAll('.resize-handle').forEach(h=>{
+        const p = positions[h.dataset.handle];
+        h.setAttribute('x',p[0]-4);
+        h.setAttribute('y',p[1]-4);
+    });
+    const rot = selectionGroup.querySelector('.rotate-handle');
+    if(rot){
+        rot.setAttribute('cx', bbox.x + bbox.width/2);
+        rot.setAttribute('cy', bbox.y - 20);
+    }
+}
+
+function applyTransform(el){
+    const angle = parseFloat(el.dataset.rot || 0);
+    const sx = parseFloat(el.dataset.sx || 1);
+    const sy = parseFloat(el.dataset.sy || 1);
+    const cx = parseFloat(el.dataset.cx || 0);
+    const cy = parseFloat(el.dataset.cy || 0);
+    el.setAttribute('transform', `translate(${cx} ${cy}) rotate(${angle}) scale(${sx} ${sy}) translate(${-cx} ${-cy})`);
+}
+
+let resizeHandle = null;
+let startX, startY, startBox, startSx, startSy;
+
+function startResize(e){
+    e.stopPropagation();
+    resizeHandle = e.target.dataset.handle;
+    startX = e.clientX; startY = e.clientY;
+    startBox = selectedEl.getBBox();
+    selectedEl.dataset.cx = startBox.x + startBox.width/2;
+    selectedEl.dataset.cy = startBox.y + startBox.height/2;
+    startSx = parseFloat(selectedEl.dataset.sx || 1);
+    startSy = parseFloat(selectedEl.dataset.sy || 1);
+    window.addEventListener('pointermove', resizeMove);
+    window.addEventListener('pointerup', endResize);
+}
+
+function resizeMove(e){
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    let newW = startBox.width;
+    let newH = startBox.height;
+    if(resizeHandle.includes('e')) newW += dx;
+    if(resizeHandle.includes('w')) newW -= dx;
+    if(resizeHandle.includes('s')) newH += dy;
+    if(resizeHandle.includes('n')) newH -= dy;
+    const sx = Math.max(newW / startBox.width, 0.1) * startSx;
+    const sy = Math.max(newH / startBox.height, 0.1) * startSy;
+    selectedEl.dataset.sx = sx;
+    selectedEl.dataset.sy = sy;
+    applyTransform(selectedEl);
+    updateSelectionBox();
+    updateLayoutData();
+}
+
+function endResize(){
+    window.removeEventListener('pointermove', resizeMove);
+    window.removeEventListener('pointerup', endResize);
+}
+
+let startAngle, initAngle;
+
+function startRotate(e){
+    e.stopPropagation();
+    const bbox = selectedEl.getBBox();
+    selectedEl.dataset.cx = bbox.x + bbox.width/2;
+    selectedEl.dataset.cy = bbox.y + bbox.height/2;
+    startAngle = Math.atan2(e.clientY - selectedEl.dataset.cy, e.clientX - selectedEl.dataset.cx);
+    initAngle = parseFloat(selectedEl.dataset.rot || 0);
+    window.addEventListener('pointermove', rotateMove);
+    window.addEventListener('pointerup', endRotate);
+}
+
+function rotateMove(e){
+    const angle = Math.atan2(e.clientY - selectedEl.dataset.cy, e.clientX - selectedEl.dataset.cx);
+    const deg = (angle - startAngle) * 180 / Math.PI + initAngle;
+    selectedEl.dataset.rot = deg;
+    applyTransform(selectedEl);
+    updateSelectionBox();
+    updateLayoutData();
+}
+
+function endRotate(){
+    window.removeEventListener('pointermove', rotateMove);
+    window.removeEventListener('pointerup', endRotate);
+}
+
+function deselect(){
+    if(selectionGroup){
+        selectionGroup.remove();
+        selectionGroup = null;
+    }
+    selectedEl = null;
+}
+
 function makeDraggable(el){
     let startX, startY, origX, origY;
     el.addEventListener('pointerdown', e => {
+        if(e.target.classList.contains('resize-handle') || e.target.classList.contains('rotate-handle')) return;
+        selectElement(el);
         startX = e.clientX; startY = e.clientY;
         origX = parseFloat(el.getAttribute('x') || el.getAttribute('x1') || 0);
         origY = parseFloat(el.getAttribute('y') || el.getAttribute('y1') || 0);
@@ -112,6 +270,7 @@ function makeDraggable(el){
                 break;
         }
         updateLayoutData();
+        updateSelectionBox();
     });
     el.addEventListener('pointerup', e => {
         el.releasePointerCapture(e.pointerId);
@@ -140,6 +299,9 @@ function updateLayoutData(){
             case 'image':
                 obj.attrs = {x: el.getAttribute('x'), y: el.getAttribute('y'), width: el.getAttribute('width'), height: el.getAttribute('height'), href: el.getAttribute('href') || el.getAttributeNS('http://www.w3.org/1999/xlink','href')};
                 break;
+        }
+        if(el.getAttribute('transform')){
+            obj.attrs.transform = el.getAttribute('transform');
         }
         return obj;
     });
@@ -197,6 +359,12 @@ function addElementFromData(obj){
     for(const k in obj.attrs){
         el.setAttribute(k,obj.attrs[k]);
     }
+    if(obj.attrs && obj.attrs.transform){
+        const r = obj.attrs.transform.match(/rotate\(([-0-9.]+)/);
+        const s = obj.attrs.transform.match(/scale\(([-0-9.]+) ([-0-9.]+)\)/);
+        if(r) el.dataset.rot = r[1];
+        if(s){ el.dataset.sx = s[1]; el.dataset.sy = s[2]; }
+    }
     el.dataset.id = obj.id;
     el.dataset.type = obj.type;
     editor.appendChild(el);
@@ -212,3 +380,6 @@ async function resetLayout(){
 saveBtn.addEventListener('click', saveLayout);
 loadBtn.addEventListener('click', loadLayout);
 resetBtn.addEventListener('click', resetLayout);
+editor.addEventListener('pointerdown', e => {
+    if(e.target === editor) deselect();
+});
